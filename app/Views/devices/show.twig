@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ device.name }} - IoT Monitoring System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">IoT Monitoring System</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/devices">Devices</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <h2>{{ device.name }}</h2>
+            </div>
+            <div class="col-md-6 text-end">
+                <button type="button" class="btn btn-warning" onclick="editDevice({{ device.id }})">
+                    <i class="fa fa-edit"></i> Edit Device
+                </button>
+                <button type="button" class="btn btn-danger" onclick="deleteDevice({{ device.id }})">
+                    <i class="fa fa-trash"></i> Delete Device
+                </button>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Device Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">
+                            <strong>Status:</strong>
+                            <span class="badge {% if device.status %}bg-success{% else %}bg-danger{% endif %}">
+                                {{ device.status ? 'Online' : 'Offline' }}
+                            </span><br>
+                            <strong>IP Address:</strong> {{ device.esp_ip }}<br>
+                            <strong>Last Seen:</strong> {{ device.last_seen_at ? device.last_seen_at|date('Y-m-d H:i:s') : 'Never' }}
+                        </p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Device Control</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="controlForm">
+                            <div class="mb-3">
+                                <label class="form-label">Status</label>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="status" name="status" 
+                                           {% if device.status %}checked{% endif %}>
+                                    <label class="form-check-label" for="status">Turn On/Off</label>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="updateControl()">
+                                Update Control
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Sensor Data</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="sensorChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Device Modal -->
+    <div class="modal fade" id="editDeviceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Device</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editDeviceForm">
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Device Name</label>
+                            <input type="text" class="form-control" id="name" name="name" value="{{ device.name }}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="esp_ip" class="form-label">ESP IP Address</label>
+                            <input type="text" class="form-control" id="esp_ip" name="esp_ip" value="{{ device.esp_ip }}" required>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="saveDevice()">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Initialize chart
+        const ctx = document.getElementById('sensorChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Temperature',
+                    data: [],
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        // Update sensor data
+        function updateSensorData() {
+            fetch(`/api/devices/{{ device.id }}/sensor-data`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.sensor_data) {
+                        const timestamp = new Date(data.sensor_data.created_at).toLocaleTimeString();
+                        chart.data.labels.push(timestamp);
+                        chart.data.datasets[0].data.push(data.sensor_data.temperature);
+                        
+                        if (chart.data.labels.length > 10) {
+                            chart.data.labels.shift();
+                            chart.data.datasets[0].data.shift();
+                        }
+                        
+                        chart.update();
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // Update every 5 seconds
+        setInterval(updateSensorData, 5000);
+        updateSensorData();
+
+        function editDevice(id) {
+            const modal = new bootstrap.Modal(document.getElementById('editDeviceModal'));
+            modal.show();
+        }
+
+        function saveDevice() {
+            const form = document.getElementById('editDeviceForm');
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData.entries());
+
+            fetch(`/api/devices/{{ device.id }}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while updating the device');
+            });
+        }
+
+        function deleteDevice(id) {
+            if (confirm('Are you sure you want to delete this device?')) {
+                fetch(`/api/devices/${id}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert(data.error);
+                    } else {
+                        window.location.href = '/devices';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while deleting the device');
+                });
+            }
+        }
+
+        function updateControl() {
+            const status = document.getElementById('status').checked;
+            
+            fetch(`/api/devices/{{ device.id }}/control`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ status: status })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while updating the device control');
+            });
+        }
+    </script>
+</body>
+</html> 

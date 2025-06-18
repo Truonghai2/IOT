@@ -1,0 +1,14 @@
+2025-06-18 11:15:48 pid:1 Error: Call to a member function render() on null in E:\temp\IOT\routes\web.php:12
+Stack trace:
+#0 [internal function]: {closure}()
+#1 E:\temp\IOT\app\Core\Router.php(81): call_user_func_array(Object(Closure), Array)
+#2 E:\temp\IOT\app\Core\Router.php(63): App\Core\Router->executeAction(Object(Closure), Array)
+#3 E:\temp\IOT\public\index.php(38): App\Core\Router->dispatch('GET', '/')
+#4 E:\temp\IOT\server.php(33): require('E:\\temp\\IOT\\pub...')
+#5 E:\temp\IOT\vendor\workerman\workerman\src\Connection\TcpConnection.php(750): {closure}(Object(Workerman\Connection\TcpConnection), Object(Workerman\Protocols\Http\Request))
+#6 E:\temp\IOT\vendor\workerman\workerman\src\Events\Select.php(406): Workerman\Connection\TcpConnection->baseRead(Resource id #78)
+#7 E:\temp\IOT\vendor\workerman\workerman\src\Worker.php(1613): Workerman\Events\Select->run()
+#8 E:\temp\IOT\vendor\workerman\workerman\src\Worker.php(1528): Workerman\Worker::forkWorkersForWindows()
+#9 E:\temp\IOT\vendor\workerman\workerman\src\Worker.php(594): Workerman\Worker::forkWorkers()
+#10 E:\temp\IOT\server.php(40): Workerman\Worker::runAll()
+#11 {main}
