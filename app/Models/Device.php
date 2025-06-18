@@ -2,11 +2,11 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Capsule\Manager as Capsule;
 
-class Device extends Model
+class Device
 {
+    protected $attributes = [];
     protected $table = 'devices';
     
     protected $fillable = [
@@ -19,50 +19,110 @@ class Device extends Model
         'last_seen_at'
     ];
 
-    protected $casts = [
-        'status' => 'string',
-        'last_seen_at' => 'datetime'
-    ];
-
     public function __construct(array $attributes = [])
     {
         foreach ($attributes as $key => $value) {
             if (in_array($key, $this->fillable)) {
-                $this->$key = $value;
+                $this->attributes[$key] = $value;
             }
         }
     }
 
-    public static function where($column, $value)
+    public static function all()
     {
-        // TODO: Implement database query
-        return new static(['esp_ip' => $value]);
+        try {
+            $results = Capsule::table('devices')->get();
+            $devices = [];
+            foreach ($results as $row) {
+                $devices[] = new static((array)$row);
+            }
+            return $devices;
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to fetch devices: " . $e->getMessage());
+        }
     }
 
-    public function sensorData(): HasMany
+    public static function find($id)
     {
-        return $this->hasMany(SensorData::class);
+        try {
+            $row = Capsule::table('devices')->find($id);
+            return $row ? new static((array)$row) : null;
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to find device: " . $e->getMessage());
+        }
     }
 
-    public function trainingData(): HasMany
+    public function save()
     {
-        return $this->hasMany(TrainingData::class);
+        try {
+            if (isset($this->attributes['id'])) {
+                // Update
+                return Capsule::table('devices')
+                    ->where('id', $this->attributes['id'])
+                    ->update($this->attributes);
+            } else {
+                // Insert
+                $id = Capsule::table('devices')->insertGetId($this->attributes);
+                $this->attributes['id'] = $id;
+                return true;
+            }
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to save device: " . $e->getMessage());
+        }
     }
 
-    public static function create(array $attributes = [])
+    public function update(array $attributes = [])
     {
-        $model = new static($attributes);
-        $model->save();
-        return $model;
+        foreach ($attributes as $key => $value) {
+            if (in_array($key, $this->fillable)) {
+                $this->attributes[$key] = $value;
+            }
+        }
+        return $this->save();
     }
 
-    public function update(array $attributes = [], array $options = [])
+    public function delete()
     {
-        return parent::update($attributes, $options);
+        if (!isset($this->attributes['id'])) {
+            return false;
+        }
+
+        try {
+            return Capsule::table('devices')
+                ->where('id', $this->attributes['id'])
+                ->delete();
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to delete device: " . $e->getMessage());
+        }
     }
 
-    public function save(array $options = [])
+    public function sensorData()
     {
-        return parent::save($options);
+        try {
+            $row = Capsule::table('sensor_data')
+                ->where('device_id', $this->attributes['id'])
+                ->orderBy('created_at', 'desc')
+                ->first();
+            return $row ? new SensorData((array)$row) : null;
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to fetch sensor data: " . $e->getMessage());
+        }
+    }
+
+    public function toArray()
+    {
+        return $this->attributes;
+    }
+
+    public function __get($key)
+    {
+        return $this->attributes[$key] ?? null;
+    }
+
+    public function __set($key, $value)
+    {
+        if (in_array($key, $this->fillable)) {
+            $this->attributes[$key] = $value;
+        }
     }
 } 

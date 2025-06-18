@@ -184,3 +184,11 @@ $worker->onMessage = function($connection, Request $request) use ($app) {
 
 // Run worker
 Worker::runAll(); 
+
+$publicPath = __DIR__ . '/public';
+$requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$filePath = realpath($publicPath . $requestUri);
+
+if ($filePath && strpos($filePath, $publicPath) === 0 && is_file($filePath)) {
+    return readfile($filePath);
+} 

@@ -8,12 +8,11 @@ return new class {
     {
         Capsule::schema()->create('sensor_data', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('device_id')->constrained()->onDelete('cascade');
-            $table->float('temperature');
-            $table->float('humidity');
-            $table->float('gas_value');
-            $table->float('dust_value');
-            $table->boolean('fire_sensor_status');
+            $table->foreignId('device_id')->constrained('devices')->onDelete('cascade');
+            $table->float('temperature')->nullable();
+            $table->float('humidity')->nullable();
+            $table->float('pressure')->nullable();
+            $table->float('gas')->nullable();
             $table->timestamps();
         });
     }

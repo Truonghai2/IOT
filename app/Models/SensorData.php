@@ -2,45 +2,64 @@
 
 namespace App\Models;
 
-use App\Core\Model;
+use Illuminate\Database\Capsule\Manager as Capsule;
 
-class SensorData extends Model
+class SensorData
 {
+    protected $attributes = [];
     protected $table = 'sensor_data';
+    
     protected $fillable = [
         'device_id',
         'temperature',
         'humidity',
-        'gas_value',
-        'dust_value',
-        'fire_sensor_status'
-    ];
-
-    protected $casts = [
-        'temperature' => 'float',
-        'humidity' => 'float',
-        'gas_value' => 'float',
-        'dust_value' => 'float',
-        'fire_sensor_status' => 'boolean'
+        'pressure',
+        'gas',
+        'created_at'
     ];
 
     public function __construct(array $attributes = [])
     {
         foreach ($attributes as $key => $value) {
             if (in_array($key, $this->fillable)) {
-                $this->$key = $value;
+                $this->attributes[$key] = $value;
             }
         }
     }
 
-    public static function create(array $attributes)
+    public function save()
     {
-        $model = new static($attributes);
-        return $model;
+        try {
+            if (isset($this->attributes['id'])) {
+                // Update
+                return Capsule::table('sensor_data')
+                    ->where('id', $this->attributes['id'])
+                    ->update($this->attributes);
+            } else {
+                // Insert
+                $id = Capsule::table('sensor_data')->insertGetId($this->attributes);
+                $this->attributes['id'] = $id;
+                return true;
+            }
+        } catch (\Exception $e) {
+            throw new \Exception("Failed to save sensor data: " . $e->getMessage());
+        }
     }
 
-    public function device()
+    public function toArray()
     {
-        return $this->belongsTo(Device::class);
+        return $this->attributes;
+    }
+
+    public function __get($key)
+    {
+        return $this->attributes[$key] ?? null;
+    }
+
+    public function __set($key, $value)
+    {
+        if (in_array($key, $this->fillable)) {
+            $this->attributes[$key] = $value;
+        }
     }
 } 

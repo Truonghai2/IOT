@@ -17,7 +17,13 @@ class DeviceController extends Controller
         if ($data !== null) {
             $logMessage .= " - Data: " . json_encode($data);
         }
-        file_put_contents(__DIR__ . '/../../storage/logs/device.log', $logMessage . PHP_EOL, FILE_APPEND);
+        
+        $logDir = __DIR__ . '/../../storage/logs';
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0777, true);
+        }
+        
+        file_put_contents($logDir . '/device.log', $logMessage . PHP_EOL, FILE_APPEND);
     }
 
     public function index(ServerRequestInterface $request, ResponseInterface $response)
@@ -143,8 +149,12 @@ class DeviceController extends Controller
     {
         try {
             $devices = Device::all();
-            $this->log("Retrieved devices", $devices->toArray());
-            return $this->jsonResponse($response, ['devices' => $devices]);
+            $this->log("Retrieved devices", array_map(function($device) {
+                return $device->toArray();
+            }, $devices));
+            return $this->jsonResponse($response, ['devices' => array_map(function($device) {
+                return $device->toArray();
+            }, $devices)]);
         } catch (\Exception $e) {
             $this->log("Error retrieving devices", [
                 'message' => $e->getMessage(),
