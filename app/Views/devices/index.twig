@@ -42,12 +42,13 @@
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="card-title mb-0">{{ device.name }}</h5>
-                        <span class="badge {% if device.status %}bg-success{% else %}bg-danger{% endif %}">
-                            {{ device.status ? 'Online' : 'Offline' }}
+                        <span class="badge {% if device.status == 1 %}bg-success{% else %}bg-danger{% endif %}">
+                            {{ device.status == 1 ? "ON" : "OFF" }}
                         </span>
                     </div>
                     <div class="card-body">
                         <p class="card-text">
+                            <strong>Type:</strong> {{ device.type }}<br>
                             <strong>IP:</strong> {{ device.esp_ip }}<br>
                             <strong>Last Seen:</strong> {{ device.last_seen_at ? device.last_seen_at|date('Y-m-d H:i:s') : 'Never' }}
                         </p>
@@ -55,15 +56,16 @@
                             <a href="/devices/{{ device.id }}" class="btn btn-info btn-sm">
                                 <i class="fa fa-eye"></i> View
                             </a>
-                            <button type="button" class="btn btn-warning btn-sm" onclick="editDevice({{ device.id }})">
+                            <button type="button" class="btn btn-warning btn-sm" onclick="editDevice('{{ device.id }}')">
                                 <i class="fa fa-edit"></i> Edit
                             </button>
-                            <button type="button" class="btn btn-danger btn-sm" onclick="deleteDevice({{ device.id }})">
+                            <button type="button" class="btn btn-danger btn-sm" onclick="deleteDevice('{{ device.id }}')">
                                 <i class="fa fa-trash"></i> Delete
                             </button>
                         </div>
                     </div>
                 </div>
+                
             </div>
             {% endfor %}
         </div>
@@ -87,6 +89,10 @@
                             <label for="esp_ip" class="form-label">ESP IP Address</label>
                             <input type="text" class="form-control" id="esp_ip" name="esp_ip" required>
                         </div>
+                        <div class="mb-3">
+                            <label for="type" class="form-label">Device Type</label>
+                            <input type="text" class="form-control" id="type" name="type" required>
+                        </div>
                     </form>
                 </div>
                 <div class="modal-footer">
@@ -98,6 +104,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" async></script>
     <script>
         function addDevice() {
             const form = document.getElementById('addDeviceForm');
@@ -149,6 +156,25 @@
                 });
             }
         }
+
+        window.OneSignalDeferred = window.OneSignalDeferred || [];
+        OneSignalDeferred.push(async function (OneSignal) {
+            await OneSignal.init({
+                appId: "f41bdea2-508a-4082-9951-e77411fa9f53",
+                serviceWorkerPath: '/OneSignalSDKWorker.js',
+                serviceWorkerUpdaterPath: '/OneSignalSDKUpdaterWorker.js',
+                autoResubscribe: true,
+            });
+
+            const user_id = await OneSignal.User.PushSubscription.id;
+            console.log(user_id)
+            await fetch('/api/subscriptions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id })
+            });
+        });
+
     </script>
 </body>
 </html> 

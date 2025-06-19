@@ -5,9 +5,12 @@ namespace App\Http\Controllers;
 use App\Core\Controller;
 use App\Models\Device;
 use App\Models\SensorData;
+use App\Models\Subscription;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
+use Illuminate\Database\Capsule\Manager as Capsule;
+use Minishlink\WebPush\WebPush;
 
 class DeviceController extends Controller
 {
@@ -29,6 +32,13 @@ class DeviceController extends Controller
     public function index(ServerRequestInterface $request, ResponseInterface $response)
     {
         $devices = Device::all();
+        
+        // Debug information
+        error_log("Debug devices in controller:");
+        foreach ($devices as $device) {
+            error_log("Device data: " . json_encode($device->toArray()));
+        }
+        
         return $this->view('devices/index.twig', ['devices' => $devices]);
     }
 
@@ -37,8 +47,6 @@ class DeviceController extends Controller
         try {
             $data = $request->getParsedBody();
             $this->log("Received data for device creation", $data);
-
-            // Validate required fields
             $errors = [];
             if (empty($data['name'])) {
                 $errors[] = 'Name is required';
@@ -174,6 +182,17 @@ class DeviceController extends Controller
         }
 
         $data = $request->getParsedBody();
+        error_log('Parsed body: ' . json_encode($data));
+        if (!is_array($data) || empty($data)) {
+            $raw = (string)$request->getBody();
+            error_log('Raw body: ' . $raw);
+            $data = json_decode($raw, true);
+            error_log('Parsed from raw: ' . json_encode($data));
+        }
+        if (!is_array($data) || empty($data)) {
+            return $this->jsonResponse($response, ['error' => 'No data provided'], 400);
+        }
+
         $device->update($data);
         return $this->jsonResponse($response, ['message' => 'Device control updated successfully', 'device' => $device]);
     }
@@ -185,8 +204,187 @@ class DeviceController extends Controller
             return $this->jsonResponse($response, ['error' => 'Device not found'], 404);
         }
 
-        $sensorData = $device->sensorData()->latest()->first();
+        $sensorData = $device->sensorData();
         return $this->jsonResponse($response, ['sensor_data' => $sensorData]);
+    }
+
+    public function updateSensorData(ServerRequestInterface $request, ResponseInterface $response, array $args)
+    {
+        try {
+            $data = $request->getParsedBody();
+            $this->log("Received sensor data", $data);
+
+            // Validate data structure
+            if (!isset($data['device_info']) || !isset($data['data']) || !is_array($data['data'])) {
+                return $this->jsonResponse($response, [
+                    'error' => 'Invalid data format',
+                    'message' => 'Request must include device_info and data array'
+                ], 400);
+            }
+
+            // Find device by ESP IP address
+            $deviceInfo = $data['device_info'];
+            $device = Device::findByEspIp($deviceInfo['ip']);
+            
+            // If device not found, try to find by ID from URL
+            if (!$device && isset($args['id'])) {
+                $device = Device::find($args['id']);
+            }
+
+            // If still not found, create new device
+            if (!$device) {
+                $device = new Device([
+                    'name' => 'ESP32_' . str_replace(':', '', $deviceInfo['mac']),
+                    'type' => 'ESP32',
+                    'esp_ip' => $deviceInfo['ip'],
+                    'status' => 1,
+                    'description' => json_encode([
+                        'mac' => $deviceInfo['mac'],
+                        'rssi' => $deviceInfo['rssi'],
+                        'wifi_ssid' => $deviceInfo['wifi_ssid']
+                    ])
+                ]);
+                $device->save();
+            }
+
+            // Process each data point
+            $savedData = [];
+            foreach ($data['data'] as $reading) {
+                // Check for fire condition based on sensor data and AI prediction
+                $fireDetected = false;
+                if (
+                    floatval($reading['temperature']) > 50 || // Temperature > 50°C
+                    floatval($reading['gas_value']) > 1000 || // Gas concentration too high
+                    floatval($reading['dust_value']) > 1000 || // Dust concentration too high
+                    $reading['fire_sensor_status'] == 1 || // Hardware fire sensor detected
+                    $reading['ai_prediction'] > 0 // AI predicted fire risk
+                ) {
+                    $fireDetected = true;
+                }
+
+                // Create sensor data record
+                $sensorData = new SensorData([
+                    'device_id' => $device->id,
+                    'temperature' => floatval($reading['temperature']),
+                    'humidity' => floatval($reading['humidity']),
+                    'gas' => floatval($reading['gas_value']),
+                    'smoke' => floatval($reading['dust_value']),
+                    'fire_detected' => $fireDetected,
+                    'created_at' => (intval($reading['timestamp']) > 946684800 ? date('Y-m-d H:i:s', $reading['timestamp']) : date('Y-m-d H:i:s'))
+                ]);
+
+                $sensorData->save();
+                $savedData[] = $sensorData->toArray();
+
+                // Push sensor data to WebSocket for realtime frontend update
+                $this->pushToWebSocket('sensor_update', array_merge($sensorData->toArray(), ['device_id' => $device->id]));
+
+                if ($reading['ai_prediction'] == 2) {
+                    $this->log("FIRE ALERT: AI prediction = 2 for device {$device->id}", $reading);
+                    $this->sendFireNotification($device, $reading);
+                }
+            }
+
+            $device->update([
+                'last_seen_at' => date('Y-m-d H:i:s'),
+                'status' => 1
+            ]);
+
+            return $this->jsonResponse($response, [
+                'message' => 'Sensor data updated successfully',
+                'device' => $device->toArray(),
+                'sensor_data' => $savedData
+            ]);
+
+        } catch (\Exception $e) {
+            $this->log("Error updating sensor data", [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return $this->jsonResponse($response, [
+                'error' => 'Failed to update sensor data: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    private function sendFireNotification($device, $reading)
+    {
+        // Lấy tất cả subscription
+        $subscriptions = Capsule::table('subscriptions')->get();
+        if (!$subscriptions || count($subscriptions) == 0) {
+            $this->log("No subscriptions to send notification");
+            return;
+        }
+
+        // Chuẩn bị nội dung thông báo
+        $payload = [
+            'title' => 'FIRE ALERT!',
+            'body' => "CẢNH BÁO CHÁY tại thiết bị {$device->name} (IP: {$device->esp_ip})! Nhiệt độ: {$reading['temperature']}°C, Gas: {$reading['gas_value']}, Khói: {$reading['dust_value']}",
+            'url' => 'http://your-server/devices/' . $device->id
+        ];
+
+        // Gửi đến từng user_id (OneSignal)
+        foreach ($subscriptions as $sub) {
+            if (empty($sub->user_id)) {
+                $this->log("Skip notification: missing user_id");
+                continue;
+            }
+            $this->sendOneSignalNotification($sub->user_id, $payload);
+        }
+    }
+
+    private function sendOneSignalNotification($userId, $payload)
+    {
+        $onesignalAppId = 'f41bdea2-508a-4082-9951-e77411fa9f53'; // Thay bằng appId của bạn
+        $onesignalApiKey = 'ZGRlNjQ1M2UtOGRjMS00MjcwLTllZGItMTYzZDI5OTg2ZWNh'; // Thay bằng REST API Key của bạn
+
+        $body = [
+            'app_id' => $onesignalAppId,
+            'include_player_ids' => [$userId],
+            'headings' => ['en' => $payload['title']],
+            'contents' => ['en' => $payload['body']],
+            'url' => $payload['url'],
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, "https://onesignal.com/api/v1/notifications");
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json; charset=utf-8',
+            'Authorization: Basic ' . $onesignalApiKey
+        ]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+        $result = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $this->log("OneSignal response for user_id {$userId}", [
+            'http_code' => $httpCode,
+            'result' => $result
+        ]);
+    }
+
+    private function pushToWebSocket($event, $data)
+    {
+        $host = '127.0.0.1';
+        $port = 12345;
+
+        $payload = json_encode([
+            'event' => $event,
+            'device_id' => $data['device_id'] ?? null,
+            'data' => $data
+        ]);
+        $this->log("[pushToWebSocket] payload", $payload);
+
+        $fp = @fsockopen($host, $port, $errno, $errstr, 1);
+        if ($fp) {
+            fwrite($fp, $payload . "\n");
+            fclose($fp);
+            $this->log("[pushToWebSocket] sent to $host:$port");
+        } else {
+            $this->log("WebSocket push failed: $errstr ($errno)");
+        }
     }
 
     protected function jsonResponse(ResponseInterface $response, $data, $status = 200)

@@ -11,6 +11,7 @@
         "illuminate/view": "^10.0",
         "jenssegers/blade": "^2.0",
         "laravel/framework": "^10.48",
+        "minishlink/web-push": "^9.0",
         "php-di/php-di": "7.0",
         "slim/psr7": "1.6",
         "slim/slim": "4.11",

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\TrainingController;
+use App\Http\Controllers\SubscriptionController;
 
 // Device API Routes
 $router->group(['prefix' => 'devices'], function ($router) {
@@ -10,8 +11,9 @@ $router->group(['prefix' => 'devices'], function ($router) {
     $router->get('/{device}', [DeviceController::class, 'show']);
     $router->put('/{device}', [DeviceController::class, 'update']);
     $router->delete('/{device}', [DeviceController::class, 'destroy']);
-    $router->post('/control', [DeviceController::class, 'apiControl']);
+    $router->post('/{device}/control', [DeviceController::class, 'apiControl']);
     $router->get('/{device}/sensor-data', [DeviceController::class, 'getSensorData']);
+    $router->post('/{device}/sensor-data', [DeviceController::class, 'updateSensorData']);
 });
 
 // Training API Routes

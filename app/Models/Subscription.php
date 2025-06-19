@@ -4,18 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Capsule\Manager as Capsule;
 
-class SensorData
+class Subscription
 {
     protected $attributes = [];
-    protected $table = 'sensor_data';
-    
+    protected $table = 'subscriptions';
     protected $fillable = [
-        'device_id',
-        'temperature',
-        'humidity',
-        'gas',
-        'smoke',
-        'fire_detected',
+        'endpoint',
+        'auth_key',
+        'p256dh_key',
+        'user_agent',
+        'user_id',
         'created_at',
         'updated_at'
     ];
@@ -56,7 +54,7 @@ class SensorData
                 return true;
             }
         } catch (\Exception $e) {
-            throw new \Exception("Failed to save sensor data: " . $e->getMessage());
+            throw new \Exception("Failed to save subscription: " . $e->getMessage());
         }
     }
 

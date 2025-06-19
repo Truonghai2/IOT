@@ -7,6 +7,7 @@ use Workerman\Worker;
 use Workerman\Protocols\Http\Request;
 use Workerman\Protocols\Http\Response;
 use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\SubscriptionController;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Factory\StreamFactory;
 use Slim\Psr7\Factory\UriFactory;
@@ -63,13 +64,24 @@ $app->group('/devices', function ($group) {
 // API routes
 $app->group('/api', function ($group) {
     // List devices
-    $group->map(['GET', 'POST'], '/devices', [DeviceController::class, 'apiList']);
+    $group->get('/devices', [DeviceController::class, 'apiList']);
+    $group->post('/devices', [DeviceController::class, 'store']);
     
     // Device control
     $group->post('/devices/{id}/control', [DeviceController::class, 'apiControl']);
     
     // Sensor data
     $group->get('/devices/{id}/sensor-data', [DeviceController::class, 'getSensorData']);
+    $group->post('/devices/{device}/sensor-data', [DeviceController::class, 'updateSensorData']);
+
+    // Subscriptions
+    $group->post('/subscriptions', [SubscriptionController::class, 'store']);
+
+    // Thêm route test để kiểm tra routing
+    $group->post('/test', function ($request, $response) {
+        $response->getBody()->write(json_encode(['status' => 'ok']));
+        return $response->withHeader('Content-Type', 'application/json');
+    });
 });
 
 // Create Workerman HTTP server
@@ -85,6 +97,22 @@ $worker->onMessage = function($connection, Request $request) use ($app) {
     error_log("Request URI: " . $request->uri());
     error_log("Request Headers: " . json_encode($request->header()));
     error_log("Request Body: " . $request->rawBody());
+
+    $publicPath = __DIR__ . '/public';
+    $requestUri = parse_url($request->uri(), PHP_URL_PATH);
+    $filePath = realpath($publicPath . $requestUri);
+
+    if ($filePath && strpos($filePath, $publicPath) === 0 && is_file($filePath)) {
+        $mimeType = mime_content_type($filePath);
+        $body = file_get_contents($filePath);
+        $response = new Response(
+            200,
+            ['Content-Type' => $mimeType],
+            $body
+        );
+        $connection->send($response);
+        return;
+    }
 
     // Handle OPTIONS requests directly
     if ($request->method() === 'OPTIONS') {

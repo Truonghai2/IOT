@@ -7,6 +7,7 @@ use Slim\Views\TwigMiddleware;
 use App\Core\View;
 
 require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../bootstrap/database.php';
 
 // Load environment variables
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/..');
@@ -29,6 +30,9 @@ $errorMiddleware = $app->addErrorMiddleware(true, true, true);
 
 // Add Routing Middleware
 $app->addRoutingMiddleware();
+
+// Add Body Parsing Middleware
+$app->addBodyParsingMiddleware();
 
 // Add Twig Middleware
 $app->add(TwigMiddleware::createFromContainer($app));

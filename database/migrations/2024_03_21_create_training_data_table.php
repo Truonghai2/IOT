@@ -6,18 +6,20 @@ use Illuminate\Database\Schema\Blueprint;
 return new class {
     public function up()
     {
-        Capsule::schema()->create('training_data', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('device_id')->constrained('devices')->onDelete('cascade');
-            $table->float('temperature');
-            $table->float('humidity');
-            $table->float('gas_value');
-            $table->float('dust_value');
-            $table->boolean('fire_sensor_status');
-            $table->string('label');
-            $table->timestamp('timestamp');
-            $table->timestamps();
-        });
+        if (!Capsule::schema()->hasTable('training_data')) {
+            Capsule::schema()->create('training_data', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('device_id')->constrained('devices')->onDelete('cascade');
+                $table->double('temperature', 8, 2);
+                $table->double('humidity', 8, 2);
+                $table->double('gas_value', 8, 2);
+                $table->double('dust_value', 8, 2);
+                $table->boolean('fire_sensor_status');
+                $table->string('label');
+                $table->timestamp('timestamp');
+                $table->timestamps();
+            });
+        }
     }
 
     public function down()

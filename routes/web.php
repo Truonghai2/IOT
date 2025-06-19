@@ -4,6 +4,7 @@ use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\TrainingController;
 use App\Models\Device;
 use App\Core\View;
+use App\Http\Controllers\SubscriptionController;
 use Slim\App;
 use Slim\Psr7\Request;
 use Slim\Psr7\Response;
@@ -29,9 +30,18 @@ return function (App $app) {
         $group->delete('/devices/{id}', [DeviceController::class, 'destroy']);
         $group->post('/devices/{id}/control', [DeviceController::class, 'apiControl']);
         $group->get('/devices/{id}/sensor-data', [DeviceController::class, 'getSensorData']);
+        $group->post('/devices/{device}/sensor-data', [DeviceController::class, 'updateSensorData']);
+        $group->post('/subscriptions', [SubscriptionController::class, 'store']);
     });
 
     // Training routes
     $app->post('/training', [TrainingController::class, 'store']);
     $app->get('/training', [TrainingController::class, 'index']);
+
+    // Debug catch-all route for 404s
+    $app->any('/{routes:.+}', function ($request, $response, $args) {
+        error_log('404 for path: ' . $request->getUri()->getPath());
+        $response->getBody()->write('Not found (debug catch-all)');
+        return $response->withStatus(404);
+    });
 };
