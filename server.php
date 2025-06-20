@@ -13,6 +13,7 @@ use Slim\Psr7\Factory\StreamFactory;
 use Slim\Psr7\Factory\UriFactory;
 use Slim\Psr7\Factory\UploadedFileFactory;
 use Slim\Psr7\Factory\ResponseFactory;
+use DI\Container;
 
 require __DIR__ . '/vendor/autoload.php';
 
@@ -23,7 +24,16 @@ $dotenv->load();
 // Initialize database
 require __DIR__ . '/bootstrap/database.php';
 
+// Create Container
+$container = new Container();
+
+// Set view in container
+$container->set('view', function() {
+    return Twig::create(__DIR__ . '/app/Views', ['cache' => false]);
+});
+
 // Create App
+AppFactory::setContainer($container);
 $app = AppFactory::create();
 
 // Add Routing Middleware
@@ -32,11 +42,11 @@ $app->addRoutingMiddleware();
 // Add Error Middleware
 $errorMiddleware = $app->addErrorMiddleware(true, true, true);
 
-// Create Twig
-$twig = Twig::create(__DIR__ . '/app/Views', ['cache' => false]);
+// Add Body Parsing Middleware
+$app->addBodyParsingMiddleware();
 
 // Add Twig-View Middleware
-$app->add(TwigMiddleware::create($app, $twig));
+$app->add(TwigMiddleware::createFromContainer($app));
 
 // Add CORS middleware
 $app->add(function ($request, $handler) {
@@ -47,42 +57,9 @@ $app->add(function ($request, $handler) {
         ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
 });
 
-// Add routes
-$app->get('/', function ($request, $response) {
-    return $response->withHeader('Location', '/devices')->withStatus(302);
-});
-
-// Device routes
-$app->group('/devices', function ($group) {
-    $group->get('', [DeviceController::class, 'index']);
-    $group->post('', [DeviceController::class, 'store']);
-    $group->get('/{id}', [DeviceController::class, 'show']);
-    $group->put('/{id}', [DeviceController::class, 'update']);
-    $group->delete('/{id}', [DeviceController::class, 'destroy']);
-});
-
-// API routes
-$app->group('/api', function ($group) {
-    // List devices
-    $group->get('/devices', [DeviceController::class, 'apiList']);
-    $group->post('/devices', [DeviceController::class, 'store']);
-    
-    // Device control
-    $group->post('/devices/{id}/control', [DeviceController::class, 'apiControl']);
-    
-    // Sensor data
-    $group->get('/devices/{id}/sensor-data', [DeviceController::class, 'getSensorData']);
-    $group->post('/devices/{device}/sensor-data', [DeviceController::class, 'updateSensorData']);
-
-    // Subscriptions
-    $group->post('/subscriptions', [SubscriptionController::class, 'store']);
-
-    // Thêm route test để kiểm tra routing
-    $group->post('/test', function ($request, $response) {
-        $response->getBody()->write(json_encode(['status' => 'ok']));
-        return $response->withHeader('Content-Type', 'application/json');
-    });
-});
+// Load routes from routes/web.php
+$routes = require __DIR__ . '/routes/web.php';
+$routes($app);
 
 // Create Workerman HTTP server
 $worker = new Worker('http://0.0.0.0:8000');
@@ -101,6 +78,23 @@ $worker->onMessage = function($connection, Request $request) use ($app) {
     $publicPath = __DIR__ . '/public';
     $requestUri = parse_url($request->uri(), PHP_URL_PATH);
     $filePath = realpath($publicPath . $requestUri);
+
+    // Handle OneSignal service worker files specifically
+    if (strpos($requestUri, 'OneSignalSDKWorker.js') !== false || 
+        strpos($requestUri, 'OneSignalSDK.sw.js') !== false) {
+        
+        $oneSignalFile = __DIR__ . '/public/OneSignalSDKWorker.js';
+        if (file_exists($oneSignalFile)) {
+            $body = file_get_contents($oneSignalFile);
+            $response = new Response(
+                200,
+                ['Content-Type' => 'application/javascript'],
+                $body
+            );
+            $connection->send($response);
+            return;
+        }
+    }
 
     if ($filePath && strpos($filePath, $publicPath) === 0 && is_file($filePath)) {
         $mimeType = mime_content_type($filePath);

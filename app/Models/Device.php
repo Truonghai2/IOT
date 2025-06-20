@@ -135,7 +135,7 @@ class Device
             
             $rows = Capsule::table('sensor_data')
                 ->where('device_id', $this->attributes['id'])
-                ->orderBy('created_at', 'desc')
+                ->orderBy('updated_at', 'desc')
                 ->limit(10)
                 ->get();
             

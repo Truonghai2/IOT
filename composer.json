@@ -18,7 +18,8 @@
         "slim/twig-view": "3.3",
         "textalk/websocket": "^1.5",
         "vlucas/phpdotenv": "^5.5",
-        "workerman/workerman": "^4.1"
+        "workerman/workerman": "^4.1",
+        "pusher/pusher-php-server": "^7.2"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.0",

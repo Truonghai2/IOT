@@ -105,6 +105,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" async></script>
+    <script src="https://js.pusher.com/7.2/pusher.min.js"></script>
     <script>
         function addDevice() {
             const form = document.getElementById('addDeviceForm');
@@ -157,24 +158,79 @@
             }
         }
 
-        window.OneSignalDeferred = window.OneSignalDeferred || [];
-        OneSignalDeferred.push(async function (OneSignal) {
-            await OneSignal.init({
-                appId: "f41bdea2-508a-4082-9951-e77411fa9f53",
-                serviceWorkerPath: '/OneSignalSDKWorker.js',
-                serviceWorkerUpdaterPath: '/OneSignalSDKUpdaterWorker.js',
-                autoResubscribe: true,
+        // Bọc toàn bộ logic mới vào DOMContentLoaded
+        document.addEventListener('DOMContentLoaded', function() {
+            // --- OneSignal Logic (giữ nguyên) ---
+            window.OneSignalDeferred = window.OneSignalDeferred || [];
+            OneSignalDeferred.push(async function (OneSignal) {
+                await OneSignal.init({
+                    appId: "f41bdea2-508a-4082-9951-e77411fa9f53",
+                    serviceWorkerPath: '/OneSignalSDKWorker.js',
+                    serviceWorkerUpdaterPath: '/OneSignalSDKUpdaterWorker.js',
+                    autoResubscribe: true,
+                });
+
+                const user_id = await OneSignal.User.PushSubscription.id;
+                console.log(user_id)
+                await fetch('/api/subscriptions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id })
+                });
             });
 
-            const user_id = await OneSignal.User.PushSubscription.id;
-            console.log(user_id)
-            await fetch('/api/subscriptions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id })
+            // --- Pusher & Fire Alert Logic ---
+            Pusher.logToConsole = true; // Bật log để debug
+
+            const pusher = new Pusher('57030bb72296d60cd497', { cluster: 'ap1' });
+            const channel = pusher.subscribe('device-channel');
+            let fireAlertInterval = null;
+
+            // Hàm hiển thị cảnh báo
+            function showFireAlert(data) {
+                const overlay = document.getElementById('fireAlertOverlay');
+                const messageEl = document.getElementById('fireAlertMessage');
+                const deviceName = data.device_name || `Thiết bị ID: ${data.device_id}`;
+                messageEl.innerHTML = `<strong>Tại thiết bị: ${deviceName}</strong><br>Nhiệt độ: ${data.temperature}°C, Gas: ${data.gas}, Khói: ${data.smoke}`;
+                overlay.style.display = 'flex';
+            }
+
+            // Hàm ẩn cảnh báo và dừng gửi thông báo
+            function hideFireAlert() {
+                const overlay = document.getElementById('fireAlertOverlay');
+                overlay.style.display = 'none';
+                if (fireAlertInterval) {
+                    clearInterval(fireAlertInterval);
+                    fireAlertInterval = null;
+                }
+            }
+            document.getElementById('handleFireAlertBtn').addEventListener('click', hideFireAlert);
+
+            // Lắng nghe sự kiện từ Pusher
+            channel.bind('sensor_update', function(data) {
+                // Nếu có cảnh báo cháy và chưa có interval nào đang chạy
+                if (data.ai_prediction == 2 && !fireAlertInterval) {
+                    // 1. Hiển thị cảnh báo ngay lập tức
+                    showFireAlert(data);
+                    
+                    // 2. Bắt đầu vòng lặp gửi lại thông báo sau mỗi 2 giây
+                    fireAlertInterval = setInterval(() => {
+                        // Gọi API để backend gửi lại thông báo OneSignal
+                        fetch(`/api/devices/${data.device_id}/resend-notification`, { method: 'POST' });
+                    }, 2000);
+                }
             });
         });
-
     </script>
+
+    <!-- Lớp phủ cảnh báo cháy -->
+    <div id="fireAlertOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(220, 53, 69, 0.9); z-index: 9999; color: white; text-align: center; flex-direction: column; justify-content: center; align-items: center;">
+        <div style="font-size: 5rem; font-weight: bold; text-shadow: 2px 2px 4px #000;">
+            <i class="fa fa-fire" aria-hidden="true"></i> CẢNH BÁO CHÁY!
+        </div>
+        <div id="fireAlertMessage" style="font-size: 1.5rem; margin-top: 20px;"></div>
+        <button id="handleFireAlertBtn" style="margin-top: 40px; padding: 15px 30px; font-size: 1.5em; cursor: pointer; border: none; border-radius: 5px; background-color: #28a745; color: white;">Đã xử lý</button>
+    </div>
+
 </body>
 </html> 

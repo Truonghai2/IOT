@@ -12,9 +12,7 @@ use Slim\Psr7\Response;
 return function (App $app) {
     // Web routes
     $app->get('/', function (Request $request, Response $response) {
-        return $this->get('view')->render($response, 'home.twig', [
-            'title' => 'IoT Monitoring System'
-        ]);
+        return $response->withHeader('Location', '/devices')->withStatus(302);
     });
 
     // Device routes
@@ -30,7 +28,9 @@ return function (App $app) {
         $group->delete('/devices/{id}', [DeviceController::class, 'destroy']);
         $group->post('/devices/{id}/control', [DeviceController::class, 'apiControl']);
         $group->get('/devices/{id}/sensor-data', [DeviceController::class, 'getSensorData']);
+        $group->get('/devices/{id}/latest-sensor-data', [DeviceController::class, 'getLatestSensorData']);
         $group->post('/devices/{device}/sensor-data', [DeviceController::class, 'updateSensorData']);
+        $group->post('/devices/{id}/resend-notification', [DeviceController::class, 'resendFireNotification']);
         $group->post('/subscriptions', [SubscriptionController::class, 'store']);
     });
 

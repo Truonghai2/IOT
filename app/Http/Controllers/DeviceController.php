@@ -11,6 +11,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Slim\Psr7\Response;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Minishlink\WebPush\WebPush;
+use Pusher\Pusher;
 
 class DeviceController extends Controller
 {
@@ -276,8 +277,15 @@ class DeviceController extends Controller
                 $sensorData->save();
                 $savedData[] = $sensorData->toArray();
 
-                // Push sensor data to WebSocket for realtime frontend update
-                $this->pushToWebSocket('sensor_update', array_merge($sensorData->toArray(), ['device_id' => $device->id]));
+                $pusherData = array_merge(
+                    $sensorData->toArray(),
+                    [
+                        'device_id' => $device->id,
+                        'device_name' => $device->name,
+                        'ai_prediction' => $reading['ai_prediction'] ?? 0
+                    ]
+                );
+                $this->pushToPusher('sensor_update', $pusherData);
 
                 if ($reading['ai_prediction'] == 2) {
                     $this->log("FIRE ALERT: AI prediction = 2 for device {$device->id}", $reading);
@@ -320,7 +328,7 @@ class DeviceController extends Controller
         $payload = [
             'title' => 'FIRE ALERT!',
             'body' => "CẢNH BÁO CHÁY tại thiết bị {$device->name} (IP: {$device->esp_ip})! Nhiệt độ: {$reading['temperature']}°C, Gas: {$reading['gas_value']}, Khói: {$reading['dust_value']}",
-            'url' => 'http://your-server/devices/' . $device->id
+            'url' => 'https://d957-2405-4802-1b20-10c0-bd67-f4b9-a6ae-f56f.ngrok-free.app/devices/' . $device->id
         ];
 
         // Gửi đến từng user_id (OneSignal)
@@ -365,26 +373,19 @@ class DeviceController extends Controller
         ]);
     }
 
-    private function pushToWebSocket($event, $data)
+    private function pushToPusher($event, $data)
     {
-        $host = '127.0.0.1';
-        $port = 12345;
-
-        $payload = json_encode([
-            'event' => $event,
-            'device_id' => $data['device_id'] ?? null,
-            'data' => $data
-        ]);
-        $this->log("[pushToWebSocket] payload", $payload);
-
-        $fp = @fsockopen($host, $port, $errno, $errstr, 1);
-        if ($fp) {
-            fwrite($fp, $payload . "\n");
-            fclose($fp);
-            $this->log("[pushToWebSocket] sent to $host:$port");
-        } else {
-            $this->log("WebSocket push failed: $errstr ($errno)");
-        }
+        $options = [
+            'cluster' => 'ap1',
+            'useTLS' => true
+        ];
+        $pusher = new Pusher(
+            '57030bb72296d60cd497', // key
+            'a273dac9f32518844f6e', // secret
+            '1801599',              
+            $options
+        );
+        $pusher->trigger('device-channel', $event, $data);
     }
 
     protected function jsonResponse(ResponseInterface $response, $data, $status = 200)
@@ -392,5 +393,50 @@ class DeviceController extends Controller
         $response = $response->withHeader('Content-Type', 'application/json');
         $response->getBody()->write(json_encode($data));
         return $response->withStatus($status);
+    }
+
+    // API: Lấy sensor data mới nhất cho device
+    public function getLatestSensorData(ServerRequestInterface $request, ResponseInterface $response, array $args)
+    {
+        $device = Device::find($args['id']);
+        if (!$device) {
+            return $this->jsonResponse($response, ['error' => 'Device not found'], 404);
+        }
+        $row = \Illuminate\Database\Capsule\Manager::table('sensor_data')
+            ->where('device_id', $device->id)
+            ->orderBy('created_at', 'desc')
+            ->first();
+        if (!$row) {
+            return $this->jsonResponse($response, ['sensor_data' => null]);
+        }
+        $sensorData = (new \App\Models\SensorData((array)$row))->toArray();
+        return $this->jsonResponse($response, ['sensor_data' => $sensorData]);
+    }
+
+    public function resendFireNotification(ServerRequestInterface $request, ResponseInterface $response, array $args)
+    {
+        $device = Device::find($args['id']);
+        if (!$device) {
+            return $this->jsonResponse($response, ['error' => 'Device not found'], 404);
+        }
+
+        // Chuẩn bị payload đơn giản để gửi lại
+        $payload = [
+            'title' => 'CẢNH BÁO CHÁY (NHẮC LẠI)',
+            'body' => "Vẫn đang có cảnh báo cháy tại thiết bị {$device->name}! Yêu cầu xử lý ngay.",
+            'url' => 'https://d957-2405-4802-1b20-10c0-bd67-f4b9-a6ae-f56f.ngrok-free.app/devices/' . $device->id
+        ];
+
+        // Lấy tất cả người dùng đã đăng ký và gửi thông báo
+        $subscriptions = Capsule::table('subscriptions')->get();
+        if ($subscriptions && count($subscriptions) > 0) {
+            foreach ($subscriptions as $sub) {
+                if (!empty($sub->user_id)) {
+                    $this->sendOneSignalNotification($sub->user_id, $payload);
+                }
+            }
+        }
+        
+        return $this->jsonResponse($response, ['message' => 'Resent notification successfully']);
     }
 } 
